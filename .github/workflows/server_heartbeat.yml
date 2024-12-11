@@ -12,10 +12,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v2
       
-      - name: Set up SSH
-        uses: webfactory/ssh-agent@v0.5.3
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}  # 您的私钥存储在GitHub Secrets中
+      - name: Install sshpass
+        run: sudo apt-get install sshpass  # 安装 sshpass 工具
 
       - name: Run SSH Login Script
         env:
@@ -23,13 +21,16 @@ jobs:
         run: |
           # 解析 JSON 格式的服务器信息
           echo "Parsing server credentials"
-          SERVER_JSON=$(echo $SERVER_CREDENTIALS | jq -r 'to_entries | .[] | "Host: \(.key), IP: \(.value.host), User: \(.value.username)"')
+          SERVER_JSON=$(echo $SERVER_CREDENTIALS | jq -r 'to_entries | .[] | "Host: \(.key), IP: \(.value.host), User: \(.value.username), Password: \(.value.password)"')
           
           for server in $SERVER_JSON; do
             SERVER_NAME=$(echo $server | awk -F, '{print $1}' | cut -d' ' -f2)
             SERVER_IP=$(echo $server | awk -F, '{print $2}' | cut -d' ' -f3)
             SERVER_USER=$(echo $server | awk -F, '{print $3}' | cut -d' ' -f2)
+            SERVER_PASS=$(echo $server | awk -F, '{print $4}' | cut -d' ' -f3)
 
             echo "Logging in to $SERVER_NAME ($SERVER_IP) as $SERVER_USER"
-            ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "echo 'Server is alive at $(date)'"
+            
+            # 使用 sshpass 通过密码登录
+            sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "echo 'Server is alive at $(date)'"
           done
