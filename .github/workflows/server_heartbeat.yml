@@ -1,36 +1,38 @@
-name: Server Heartbeat
+name: SSH Login
 
 on:
+  workflow_dispatch: # 手动触发工作流
   schedule:
-    - cron: '0 0 * * *'  # 每天定时触发，可以根据需要调整定时表达式
-  workflow_dispatch:  # 允许手动触发
+    - cron: "30 0,13 * * *"  # 每天 北京时间 早8点30分 晚9点30分 各运行一次
 
 jobs:
-  server-login:
+  ssh-login:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      
-      - name: Install sshpass
-        run: sudo apt-get install sshpass  # 安装 sshpass 工具
+      - name: Set up SSHPass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
 
-      - name: Run SSH Login Script
-        env:
-          SERVER_CREDENTIALS: ${{ secrets.SERVER_CREDENTIALS }}  # 从Secrets中加载服务器信息
+      - name: Get ACCOUNTS_JSON
+        id: get-accounts
         run: |
-          # 解析 JSON 格式的服务器信息
-          echo "Parsing server credentials"
-          SERVER_JSON=$(echo $SERVER_CREDENTIALS | jq -r 'to_entries | .[] | "Host: \(.key), IP: \(.value.host), User: \(.value.username), Password: \(.value.password)"')
-          
-          for server in $SERVER_JSON; do
-            SERVER_NAME=$(echo $server | awk -F, '{print $1}' | cut -d' ' -f2)
-            SERVER_IP=$(echo $server | awk -F, '{print $2}' | cut -d' ' -f3)
-            SERVER_USER=$(echo $server | awk -F, '{print $3}' | cut -d' ' -f2)
-            SERVER_PASS=$(echo $server | awk -F, '{print $4}' | cut -d' ' -f3)
+          echo "$ACCOUNTS_JSON" > accounts.json
+        env:
+          ACCOUNTS_JSON: ${{ secrets.ACCOUNTS_JSON }}
+        # 从 GitHub Secrets 获取 ACCOUNTS_JSON 变量，并保存到文件 accounts.json
 
-            echo "Logging in to $SERVER_NAME ($SERVER_IP) as $SERVER_USER"
-            
-            # 使用 sshpass 通过密码登录
-            sshpass -p "$SERVER_PASS" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP "echo 'Server is alive at $(date)'"
-          done
+      - name: Generate SSH Login Commands
+        id: generate-ssh-commands
+        run: |
+          echo "#!/bin/bash" > sshpass.sh
+          while IFS= read -r account; do
+            username=$(echo "$account" | jq -r '.username')
+            password=$(echo "$account" | jq -r '.password')
+            ssh=$(echo "$account" | jq -r '.ssh')
+
+            echo "echo \"Logging into $username@$ssh\"" >> sshpass.sh
+            echo "sshpass -p '$password' ssh -o StrictHostKeyChecking=no '$username@$ssh' 'echo \"Successfully logged in at $(date)\"'" >> sshpass.sh
+          done < <(jq -c '.[]' accounts.json)
+          chmod +x sshpass.sh
+
+      - name: Execute SSH Login Commands
+        run: ./sshpass.sh
