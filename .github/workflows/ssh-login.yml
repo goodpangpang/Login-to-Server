@@ -1,0 +1,43 @@
+name: SSH Login to Multiple Servers (With Password)
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # 每天午夜触发 (UTC时间)
+  workflow_dispatch:  # 手动触发
+
+jobs:
+  ssh-login:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Install dependencies
+      run: sudo apt-get install -y sshpass jq
+
+    - name: SSH into multiple servers and run commands
+      run: |
+        # 从 GitHub Secrets 获取服务器信息（JSON 格式）
+        servers_json="${{ secrets.SERVERS }}"
+
+        # 使用 jq 解析 JSON 数据
+        servers=$(echo "$servers_json" | jq -c '.[]')
+
+        # 循环遍历每个服务器
+        for server in $servers; do
+          # 提取每个服务器的信息
+          server_name=$(echo $server | jq -r '.name')
+          user=$(echo $server | jq -r '.user')
+          password=$(echo $server | jq -r '.password')
+          ip=$(echo $server | jq -r '.ip')
+
+          echo "Connecting to $server_name at $ip..."
+
+          # 使用 sshpass 登录服务器并执行命令
+          sshpass -p "$password" ssh -o StrictHostKeyChecking=no $user@$ip << EOF
+            # 你要在每个服务器上执行的命令
+            echo "Successfully logged into $server_name!"
+            date
+          EOF
+        done
